@@ -324,7 +324,7 @@ You'll see output like:
 ✓ Server published successfully!
 
 Your server is now available at:
-https://registry.modelcontextprotocol.io/servers/io.github.yourname/weather-server
+https://registry.modelcontextprotocol.io/v0/servers/io.github.yourname/weather-server
 ```
 
 ## Step 6: Verify Publication
@@ -332,7 +332,7 @@ https://registry.modelcontextprotocol.io/servers/io.github.yourname/weather-serv
 Check that your server appears in the registry:
 
 ```bash
-curl https://registry.modelcontextprotocol.io/servers/io.github.yourname/weather-server
+curl https://registry.modelcontextprotocol.io/v0/servers/io.github.yourname/weather-server
 ```
 
 You should see your server metadata returned as JSON.
