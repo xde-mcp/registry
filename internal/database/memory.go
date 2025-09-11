@@ -298,6 +298,16 @@ func (db *MemoryDB) matchesFilter(entry *apiv0.ServerJSON, filter *ServerFilter)
 		}
 	}
 
+	// Check server ID filter
+	if filter.ServerID != nil {
+		if entry.Meta == nil || entry.Meta.Official == nil {
+			return false
+		}
+		if entry.Meta.Official.ID != *filter.ServerID {
+			return false
+		}
+	}
+
 	return true
 }
 

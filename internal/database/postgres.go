@@ -40,7 +40,6 @@ func NewPostgreSQL(ctx context.Context, connectionURI string) (*PostgreSQL, erro
 	}, nil
 }
 
-//nolint:cyclop // Database filtering logic is inherently complex but clear
 func (db *PostgreSQL) List(
 	ctx context.Context,
 	filter *ServerFilter,
@@ -62,36 +61,7 @@ func (db *PostgreSQL) List(
 
 	// Add filters using JSON operators
 	if filter != nil {
-		if filter.Name != nil {
-			whereConditions = append(whereConditions, fmt.Sprintf("value->>'name' = $%d", argIndex))
-			args = append(args, *filter.Name)
-			argIndex++
-		}
-		if filter.RemoteURL != nil {
-			whereConditions = append(whereConditions, fmt.Sprintf("EXISTS (SELECT 1 FROM jsonb_array_elements(value->'remotes') AS remote WHERE remote->>'url' = $%d)", argIndex))
-			args = append(args, *filter.RemoteURL)
-			argIndex++
-		}
-		if filter.UpdatedSince != nil {
-			whereConditions = append(whereConditions, fmt.Sprintf("(value->'_meta'->'io.modelcontextprotocol.registry/official'->>'updated_at')::timestamp > $%d", argIndex))
-			args = append(args, *filter.UpdatedSince)
-			argIndex++
-		}
-		if filter.SubstringName != nil {
-			whereConditions = append(whereConditions, fmt.Sprintf("value->>'name' ILIKE $%d", argIndex))
-			args = append(args, "%"+*filter.SubstringName+"%")
-			argIndex++
-		}
-		if filter.Version != nil {
-			whereConditions = append(whereConditions, fmt.Sprintf("(value->'version_detail'->>'version') = $%d", argIndex))
-			args = append(args, *filter.Version)
-			argIndex++
-		}
-		if filter.IsLatest != nil {
-			whereConditions = append(whereConditions, fmt.Sprintf("(value->'_meta'->'io.modelcontextprotocol.registry/official'->>'is_latest')::boolean = $%d", argIndex))
-			args = append(args, *filter.IsLatest)
-			argIndex++
-		}
+		whereConditions, args, argIndex = db.buildFilterConditions(ctx, filter, whereConditions, args, argIndex)
 	}
 
 	// Add cursor pagination using registry metadata ID
@@ -319,7 +289,7 @@ func (db *PostgreSQL) UpdateServer(ctx context.Context, id string, server *apiv0
 				serverVersion = tempServer.Version
 			}
 		}
-		
+
 		query = `
 			UPDATE servers 
 			SET value = $1
@@ -347,6 +317,67 @@ func (db *PostgreSQL) UpdateServer(ctx context.Context, id string, server *apiv0
 	}
 
 	return server, nil
+}
+
+// buildFilterConditions builds WHERE conditions for server filtering
+func (db *PostgreSQL) buildFilterConditions(ctx context.Context, filter *ServerFilter, whereConditions []string, args []any, argIndex int) ([]string, []any, int) {
+	if filter.Name != nil {
+		whereConditions = append(whereConditions, fmt.Sprintf("value->>'name' = $%d", argIndex))
+		args = append(args, *filter.Name)
+		argIndex++
+	}
+	if filter.RemoteURL != nil {
+		whereConditions = append(whereConditions, fmt.Sprintf("EXISTS (SELECT 1 FROM jsonb_array_elements(value->'remotes') AS remote WHERE remote->>'url' = $%d)", argIndex))
+		args = append(args, *filter.RemoteURL)
+		argIndex++
+	}
+	if filter.UpdatedSince != nil {
+		whereConditions = append(whereConditions, fmt.Sprintf("(value->'_meta'->'io.modelcontextprotocol.registry/official'->>'updated_at')::timestamp > $%d", argIndex))
+		args = append(args, *filter.UpdatedSince)
+		argIndex++
+	}
+	if filter.SubstringName != nil {
+		whereConditions = append(whereConditions, fmt.Sprintf("value->>'name' ILIKE $%d", argIndex))
+		args = append(args, "%"+*filter.SubstringName+"%")
+		argIndex++
+	}
+	if filter.Version != nil {
+		whereConditions = append(whereConditions, fmt.Sprintf("(value->'version_detail'->>'version') = $%d", argIndex))
+		args = append(args, *filter.Version)
+		argIndex++
+	}
+	if filter.IsLatest != nil {
+		whereConditions = append(whereConditions, fmt.Sprintf("(value->'_meta'->'io.modelcontextprotocol.registry/official'->>'is_latest')::boolean = $%d", argIndex))
+		args = append(args, *filter.IsLatest)
+		argIndex++
+	}
+	if filter.ServerID != nil {
+		whereConditions, args, argIndex = db.buildServerIDFilter(ctx, whereConditions, args, argIndex, *filter.ServerID)
+	}
+	return whereConditions, args, argIndex
+}
+
+// buildServerIDFilter builds the ServerID filter condition based on schema version
+func (db *PostgreSQL) buildServerIDFilter(ctx context.Context, whereConditions []string, args []any, argIndex int, serverID string) ([]string, []any, int) {
+	// Check if the table has the new schema (with server_id column)
+	var hasServerID bool
+	err := db.conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'servers' AND column_name = 'server_id'
+		)
+	`).Scan(&hasServerID)
+
+	if err == nil && hasServerID {
+		// New schema: filter by server_id column
+		whereConditions = append(whereConditions, fmt.Sprintf("server_id = $%d", argIndex))
+	} else {
+		// Old schema: filter by ID in JSON
+		whereConditions = append(whereConditions, fmt.Sprintf("(value->'_meta'->'io.modelcontextprotocol.registry/official'->>'id') = $%d", argIndex))
+	}
+	args = append(args, serverID)
+	argIndex++
+	return whereConditions, args, argIndex
 }
 
 // Close closes the database connection

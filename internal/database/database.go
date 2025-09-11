@@ -26,6 +26,7 @@ type ServerFilter struct {
 	SubstringName *string    // for substring search on name
 	Version       *string    // for exact version matching
 	IsLatest      *bool      // for filtering latest versions only
+	ServerID      *string    // for filtering by registry server ID (across all versions)
 }
 
 // Database defines the interface for database operations

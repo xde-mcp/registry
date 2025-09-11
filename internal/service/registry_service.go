@@ -55,19 +55,93 @@ func (s *registryServiceImpl) List(filter *database.ServerFilter, cursor string,
 	return result, nextCursor, nil
 }
 
-// GetByID retrieves a specific server by its registry metadata ID in flattened format
+// GetByID retrieves the latest version of a server by its registry metadata ID
 func (s *registryServiceImpl) GetByID(id string) (*apiv0.ServerJSON, error) {
 	// Create a timeout context for the database operation
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	serverRecord, err := s.db.GetByID(ctx, id)
+	// Find all versions of this server
+	versions, err := s.getServerVersionsByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	// Return the server record directly
-	return serverRecord, nil
+	if len(versions) == 0 {
+		return nil, database.ErrNotFound
+	}
+
+	// Find the latest version
+	for _, version := range versions {
+		if version.Meta != nil && version.Meta.Official != nil && version.Meta.Official.IsLatest {
+			return version, nil
+		}
+	}
+
+	// Fallback: return the first version if no latest is marked
+	return versions[0], nil
+}
+
+// GetByIDAndVersion retrieves a specific version of a server by its registry metadata ID and version
+func (s *registryServiceImpl) GetByIDAndVersion(id string, version string) (*apiv0.ServerJSON, error) {
+	// Create a timeout context for the database operation
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Find all versions of this server
+	versions, err := s.getServerVersionsByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the specific version
+	for _, v := range versions {
+		if v.Version == version {
+			return v, nil
+		}
+	}
+
+	return nil, database.ErrNotFound
+}
+
+// GetVersionsByID retrieves all versions of a server by its registry metadata ID
+func (s *registryServiceImpl) GetVersionsByID(id string) ([]apiv0.ServerJSON, error) {
+	// Create a timeout context for the database operation
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Find all versions of this server
+	versions, err := s.getServerVersionsByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(versions) == 0 {
+		return nil, database.ErrNotFound
+	}
+
+	// Convert to return format
+	result := make([]apiv0.ServerJSON, len(versions))
+	for i, version := range versions {
+		result[i] = *version
+	}
+
+	return result, nil
+}
+
+// getServerVersionsByID is a helper function to get all versions of a server by ID
+func (s *registryServiceImpl) getServerVersionsByID(ctx context.Context, id string) ([]*apiv0.ServerJSON, error) {
+	// Use the ServerID filter to get all versions of this server
+	filter := &database.ServerFilter{
+		ServerID: &id,
+	}
+
+	servers, _, err := s.db.List(ctx, filter, "", maxServerVersionsPerServer)
+	if err != nil {
+		return nil, err
+	}
+
+	return servers, nil
 }
 
 // Publish publishes a server with flattened _meta extensions
@@ -236,11 +310,6 @@ func (s *registryServiceImpl) markAsNotLatest(ctx context.Context, server *apiv0
 		return nil
 	}
 
-	serverID := server.Meta.Official.ID
-	if serverID == "" {
-		return nil
-	}
-
 	// Create a copy of the server to avoid modifying the original
 	serverCopy := *server
 	if serverCopy.Meta == nil {
@@ -253,9 +322,9 @@ func (s *registryServiceImpl) markAsNotLatest(ctx context.Context, server *apiv0
 	// Update the copy to set is_latest = false
 	serverCopy.Meta.Official.IsLatest = false
 	serverCopy.Meta.Official.UpdatedAt = time.Now()
-	
-	// Use UpdateServer with the serverID which should match the current latest version
-	_, err := s.db.UpdateServer(ctx, serverID, &serverCopy)
+
+	// Use UpdateServer with the server ID - the database will handle finding the right version
+	_, err := s.db.UpdateServer(ctx, server.Meta.Official.ID, &serverCopy)
 	return err
 }
 

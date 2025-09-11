@@ -36,7 +36,18 @@ type ListServersBody struct {
 
 // ServerDetailInput represents the input for getting server details
 type ServerDetailInput struct {
+	ID      string `path:"id" doc:"Server ID (UUID)" format:"uuid"`
+	Version string `query:"version" doc:"Specific version to retrieve (optional)" required:"false" example:"1.0.0"`
+}
+
+// ServerVersionsInput represents the input for getting server versions
+type ServerVersionsInput struct {
 	ID string `path:"id" doc:"Server ID (UUID)" format:"uuid"`
+}
+
+// ServerVersionsBody represents the response body for server versions
+type ServerVersionsBody struct {
+	Versions []apiv0.ServerJSON `json:"versions" doc:"List of all versions for the server"`
 }
 
 // RegisterServersEndpoints registers all server-related endpoints
@@ -118,11 +129,21 @@ func RegisterServersEndpoints(api huma.API, registry service.RegistryService) {
 		Method:      http.MethodGet,
 		Path:        "/v0/servers/{id}",
 		Summary:     "Get MCP server details",
-		Description: "Get detailed information about a specific MCP server",
+		Description: "Get detailed information about a specific MCP server. Returns the latest version by default, or a specific version if the 'version' query parameter is provided.",
 		Tags:        []string{"servers"},
 	}, func(_ context.Context, input *ServerDetailInput) (*Response[apiv0.ServerJSON], error) {
-		// Get the server details from the registry service
-		serverDetail, err := registry.GetByID(input.ID)
+		var serverDetail *apiv0.ServerJSON
+		var err error
+
+		// Check if a specific version is requested
+		if input.Version != "" {
+			// Get specific version
+			serverDetail, err = registry.GetByIDAndVersion(input.ID, input.Version)
+		} else {
+			// Get latest version
+			serverDetail, err = registry.GetByID(input.ID)
+		}
+
 		if err != nil {
 			if err.Error() == "record not found" {
 				return nil, huma.Error404NotFound("Server not found")
@@ -132,6 +153,31 @@ func RegisterServersEndpoints(api huma.API, registry service.RegistryService) {
 
 		return &Response[apiv0.ServerJSON]{
 			Body: *serverDetail,
+		}, nil
+	})
+
+	// Get server versions endpoint
+	huma.Register(api, huma.Operation{
+		OperationID: "get-server-versions",
+		Method:      http.MethodGet,
+		Path:        "/v0/servers/{id}/versions",
+		Summary:     "Get all versions of an MCP server",
+		Description: "Get a list of all versions for a specific MCP server",
+		Tags:        []string{"servers"},
+	}, func(_ context.Context, input *ServerVersionsInput) (*Response[ServerVersionsBody], error) {
+		// Get all versions from the registry service
+		versions, err := registry.GetVersionsByID(input.ID)
+		if err != nil {
+			if err.Error() == "record not found" {
+				return nil, huma.Error404NotFound("Server not found")
+			}
+			return nil, huma.Error500InternalServerError("Failed to get server versions", err)
+		}
+
+		return &Response[ServerVersionsBody]{
+			Body: ServerVersionsBody{
+				Versions: versions,
+			},
 		}, nil
 	})
 }

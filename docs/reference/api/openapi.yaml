@@ -39,7 +39,7 @@ paths:
   /v0/servers/{id}:
     get:
       summary: Get MCP server details
-      description: Returns detailed information about a specific MCP server
+      description: Returns detailed information about a specific MCP server. By default, returns the latest version. Use the 'version' query parameter to retrieve a specific version.
       parameters:
         - name: id
           in: path
@@ -50,9 +50,10 @@ paths:
             format: uuid
         - name: version
           in: query
-          description: Desired MCP server version
+          description: Specific version to retrieve (optional). If not provided, returns the latest version.
           schema:
             type: string
+          example: "1.0.2"
       responses:
         '200':
           description: Detailed server information
@@ -60,6 +61,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServerDetail'
+        '404':
+          description: Server not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Server not found"
+  /v0/servers/{id}/versions:
+    get:
+      summary: Get all versions of an MCP server
+      description: Returns a list of all versions for a specific MCP server
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Unique ID of the server
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of all server versions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServerDetail'
         '404':
           description: Server not found
           content:
